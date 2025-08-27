@@ -1,10 +1,10 @@
 use std::error::Error;
 use async_trait::async_trait;
 use sqlx::{self, sqlite::SqlitePool};
-use crate::tracked_releases::{TrackedRelease};
+use crate::tracked_repositories::TrackedRelease;
 
 #[async_trait]
-pub trait TrackedReleasesRepository: Send + Sync {
+pub trait TrackedRepositoriesRepository: Send + Sync {
     async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn find_all(&self) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
     async fn find_by_id(&self, id: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
@@ -12,22 +12,22 @@ pub trait TrackedReleasesRepository: Send + Sync {
     async fn delete(&self, id: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
-pub struct SqliteTrackedReleasesRepository {
+pub struct SqliteTrackedRepositoriesRepository {
     pool: SqlitePool,
 }
 
-impl SqliteTrackedReleasesRepository {
+impl SqliteTrackedRepositoriesRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
-impl TrackedReleasesRepository for SqliteTrackedReleasesRepository {
+impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
     async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
             r#"
-            INSERT INTO tracked_releases (id, repository_name, repository_url, created_at, updated_at)
+            INSERT INTO tracked_repositories (id, repository_name, repository_url, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
             ON CONFLICT(id) DO UPDATE SET
                 repository_name = excluded.repository_name,
@@ -50,7 +50,7 @@ impl TrackedReleasesRepository for SqliteTrackedReleasesRepository {
         let releases = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, created_at, updated_at
-            FROM tracked_releases
+            FROM tracked_repositories
             ORDER BY created_at DESC
             "#,
         )
@@ -64,7 +64,7 @@ impl TrackedReleasesRepository for SqliteTrackedReleasesRepository {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, created_at, updated_at
-            FROM tracked_releases WHERE id = ?1
+            FROM tracked_repositories WHERE id = ?1
             "#,
         )
         .bind(id)
@@ -78,7 +78,7 @@ impl TrackedReleasesRepository for SqliteTrackedReleasesRepository {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, created_at, updated_at
-            FROM tracked_releases WHERE repository_url = ?1
+            FROM tracked_repositories WHERE repository_url = ?1
             "#,
         )
         .bind(repository_url)
@@ -89,12 +89,14 @@ impl TrackedReleasesRepository for SqliteTrackedReleasesRepository {
     }
 
     async fn delete(&self, id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query("DELETE FROM tracked_releases WHERE id = ?1")
+        sqlx::query("DELETE FROM tracked_repositories WHERE id = ?1")
             .bind(id)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 }
+
+// Cached releases repository moved under tracked_repositories_releases
 
 

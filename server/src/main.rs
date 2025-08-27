@@ -3,7 +3,15 @@ use teloxide::dispatching::{Dispatcher, UpdateFilterExt};
 use teloxide::dptree;
 use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
-use crate::tracked_releases::repository::TrackedReleasesRepository;
+use crate::tracked_repositories::repository::{
+    TrackedRepositoriesRepository,
+    SqliteTrackedRepositoriesRepository,
+};
+use crate::tracked_repositories::tracked_repositories_releases::repository::{
+    CachedRepositoryReleasesRepository,
+    SqliteCachedRepositoryReleasesRepository,
+};
+use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
 use serde::Deserialize;
 use teloxide::types::ParseMode;
 use std::borrow::Cow;
@@ -11,7 +19,7 @@ use std::borrow::Cow;
 mod db;
 mod configuration;
 mod logger;
-mod tracked_releases;
+mod tracked_repositories;
 
 struct State {
     db: SqlitePool,
@@ -79,7 +87,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
             }
 
             // Validate URL format first
-            let repo_url = match crate::tracked_releases::RepositoryUrl::new(url.clone()) {
+            let repo_url = match crate::tracked_repositories::RepositoryUrl::new(url.clone()) {
                 Ok(u) => u,
                 Err(err_msg) => {
                     bot.send_message(msg.chat.id, err_msg).await?;
@@ -87,7 +95,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
                 }
             };
 
-            let repository = crate::tracked_releases::repository::SqliteTrackedReleasesRepository::new(state.db.clone());
+            let repository = SqliteTrackedRepositoriesRepository::new(state.db.clone());
 
             // Try to find existing by URL to avoid UNIQUE constraint violations
             match repository.find_by_repository_url(&repo_url.url()).await {
@@ -98,11 +106,25 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
                         bot.send_message(msg.chat.id, format!("Failed to update tracked repository: {e}")).await?;
                     } else {
                         bot.send_message(msg.chat.id, format!("Updated tracking for {name} ({url}).")).await?;
+                        // Optionally refresh cache for existing repos as well
+                        if let Some((owner, repo)) = existing.repository_url.owner_and_repo() {
+                            let client = reqwest::Client::new();
+                            let token_opt = std::env::var("GITHUB_TOKEN").ok();
+                            if let Ok(Some(tag)) = fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref()).await {
+                                let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+                                let cached = CachedRepositoryRelease {
+                                    tracked_repository_id: existing.id,
+                                    tag_name: tag,
+                                    first_seen_at: chrono::Utc::now(),
+                                };
+                                let _ = cache_repo.save(&cached).await;
+                            }
+                        }
                     }
                 }
                 Ok(None) => {
                     let now = chrono::Utc::now();
-                    let mut tracked = crate::tracked_releases::TrackedRelease {
+                    let mut tracked = crate::tracked_repositories::TrackedRelease {
                         id: uuid::Uuid::now_v7(),
                         repository_name: name.clone(),
                         repository_url: repo_url,
@@ -113,6 +135,20 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
                         bot.send_message(msg.chat.id, format!("Failed to track repository: {e}")).await?;
                     } else {
                         bot.send_message(msg.chat.id, format!("Now tracking {name} ({url}).")).await?;
+                        // Fetch and cache latest release for the new tracked repository
+                        if let Some((owner, repo)) = tracked.repository_url.owner_and_repo() {
+                            let client = reqwest::Client::new();
+                            let token_opt = std::env::var("GITHUB_TOKEN").ok();
+                            if let Ok(Some(tag)) = fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref()).await {
+                                let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+                                let cached = CachedRepositoryRelease {
+                                    tracked_repository_id: tracked.id,
+                                    tag_name: tag,
+                                    first_seen_at: chrono::Utc::now(),
+                                };
+                                let _ = cache_repo.save(&cached).await;
+                            }
+                        }
                     }
                 }
                 Err(e) => {
@@ -121,25 +157,19 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
             }
         }
         Command::ListRepos => {
-            let repository = crate::tracked_releases::repository::SqliteTrackedReleasesRepository::new(state.db.clone());
+            let repository = SqliteTrackedRepositoriesRepository::new(state.db.clone());
             match repository.find_all().await {
                 Ok(repos) => {
                     if repos.is_empty() {
                         bot.send_message(msg.chat.id, "No repositories tracked yet.").await?;
                     } else {
                         let mut lines: Vec<String> = Vec::with_capacity(repos.len());
-                        let client = reqwest::Client::new();
-                        let token_opt = std::env::var("GITHUB_TOKEN").ok();
+                        let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
 
                         for r in repos {
-                            let latest_str = if let Some((owner, repo)) = r.repository_url.owner_and_repo() {
-                                match fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref()).await {
-                                    Ok(Some(tag)) => format!("latest: {}", tag),
-                                    Ok(None) => "latest: unknown".to_string(),
-                                    Err(_) => "latest: unknown".to_string(),
-                                }
-                            } else {
-                                "latest: unknown".to_string()
+                            let latest_str = match cache_repo.find_by_tracked_release_id(&r.id).await {
+                                Ok(Some(cached)) => format!("latest: {}", cached.tag_name),
+                                _ => "latest: unknown".to_string(),
                             };
                             let url_string = r.repository_url.to_string();
                             let url_escaped = html_escape(&url_string);

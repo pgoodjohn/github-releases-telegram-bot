@@ -1,20 +1,20 @@
 use crate::configuration;
 use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
-use crate::tracked_releases::repository::{TrackedReleasesRepository, SqliteTrackedReleasesRepository};
+use crate::tracked_repositories::repository::{TrackedRepositoriesRepository, SqliteTrackedRepositoriesRepository};
 
 pub struct RepositoryProvider {
-    tracked_releases: Arc<dyn TrackedReleasesRepository>,
+    tracked_repositories: Arc<dyn TrackedRepositoriesRepository>,
 }
 
 impl RepositoryProvider {
     pub async fn new(pool: SqlitePool) -> Self {
-        let tracked_releases = Arc::new(SqliteTrackedReleasesRepository::new(pool.clone())) as Arc<dyn TrackedReleasesRepository>;
-        Self { tracked_releases }
+        let tracked_releases = Arc::new(SqliteTrackedRepositoriesRepository::new(pool.clone())) as Arc<dyn TrackedRepositoriesRepository>;
+        Self { tracked_repositories: tracked_releases }
     }
 
-    pub fn tracked_releases(&self) -> Arc<dyn TrackedReleasesRepository> {
-        self.tracked_releases.clone()
+    pub fn tracked_repositories(&self) -> Arc<dyn TrackedRepositoriesRepository> {
+        self.tracked_repositories.clone()
     }
 }
 

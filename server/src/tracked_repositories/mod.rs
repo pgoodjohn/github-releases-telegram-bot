@@ -1,4 +1,5 @@
 pub mod repository;
+pub mod tracked_repositories_releases;
 
 use chrono::{DateTime, Utc};
 use uuid::{Uuid};
@@ -78,3 +79,5 @@ impl fmt::Display for RepositoryUrl {
         f.write_str(&self.url)
     }
 }
+
+// CachedRepositoryRelease moved to tracked_repositories_releases module
