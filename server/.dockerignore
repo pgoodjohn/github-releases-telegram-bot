@@ -1,0 +1,17 @@
+target
+**/target
+**/.git
+**/.gitignore
+**/.github
+**/.DS_Store
+**/.env
+**/.env.*
+**/node_modules
+**/*.log
+**/.vscode
+**/.idea
+**/*.rs.bk
+**/tmp
+**/tests/outputs
+
+
