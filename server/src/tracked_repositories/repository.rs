@@ -27,17 +27,19 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
     async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
             r#"
-            INSERT INTO tracked_repositories (id, repository_name, repository_url, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO tracked_repositories (id, repository_name, repository_url, chat_id, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(id) DO UPDATE SET
                 repository_name = excluded.repository_name,
                 repository_url = excluded.repository_url,
+                chat_id = excluded.chat_id,
                 updated_at = excluded.updated_at
             "#,
         )
         .bind(tracked_release.id.to_string())
         .bind(&tracked_release.repository_name)
         .bind(tracked_release.repository_url.url())
+        .bind(tracked_release.chat_id)
         .bind(tracked_release.created_at)
         .bind(tracked_release.updated_at)
         .execute(&self.pool)
@@ -49,7 +51,7 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
     async fn find_all(&self) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let releases = sqlx::query_as::<_, TrackedRelease>(
             r#"
-            SELECT id, repository_name, repository_url, created_at, updated_at
+            SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
             FROM tracked_repositories
             ORDER BY created_at DESC
             "#,
@@ -63,7 +65,7 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
-            SELECT id, repository_name, repository_url, created_at, updated_at
+            SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
             FROM tracked_repositories WHERE id = ?1
             "#,
         )
@@ -77,7 +79,7 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
     async fn find_by_repository_url(&self, repository_url: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
-            SELECT id, repository_name, repository_url, created_at, updated_at
+            SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
             FROM tracked_repositories WHERE repository_url = ?1
             "#,
         )

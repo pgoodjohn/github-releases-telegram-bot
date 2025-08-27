@@ -1,6 +1,6 @@
 pub mod repository;
 pub mod tracked_repositories_releases;
-pub mod subscriptions;
+// subscriptions module removed; chat_id stored on tracked_repositories
 
 use chrono::{DateTime, Utc};
 use uuid::{Uuid};
@@ -14,6 +14,7 @@ pub struct TrackedRelease {
     pub id: Uuid,
     pub repository_name: String,
     pub repository_url: RepositoryUrl,
+    pub chat_id: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -62,6 +63,8 @@ impl<'r> FromRow<'r, SqliteRow> for TrackedRelease {
         // Construct directly to avoid validating DB contents at read time
         let repository_url = RepositoryUrl { url: repository_url_str };
 
+        let chat_id: i64 = row.try_get("chat_id")?;
+
         let created_at: DateTime<Utc> = row.try_get("created_at")?;
         let updated_at: DateTime<Utc> = row.try_get("updated_at")?;
 
@@ -69,6 +72,7 @@ impl<'r> FromRow<'r, SqliteRow> for TrackedRelease {
             id,
             repository_name,
             repository_url,
+            chat_id,
             created_at,
             updated_at,
         })
