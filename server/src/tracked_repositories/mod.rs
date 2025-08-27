@@ -51,7 +51,7 @@ impl RepositoryUrl {
     }
 }
 
-impl<'r> FromRow<'r, SqliteRow> for TrackedRelease {
+impl FromRow<'_, SqliteRow> for TrackedRelease {
     fn from_row(row: &SqliteRow) -> Result<Self, sqlx::Error> {
         let id_str: String = row.try_get("id")?;
         let id = Uuid::parse_str(&id_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;

@@ -14,6 +14,7 @@ pub trait TrackedRepositoriesRepository: Send + Sync {
         &self,
         chat_id: i64,
     ) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    #[allow(dead_code)]
     async fn find_by_id(
         &self,
         id: &str,
@@ -22,6 +23,7 @@ pub trait TrackedRepositoriesRepository: Send + Sync {
         &self,
         repository_url: &str,
     ) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    #[allow(dead_code)]
     async fn delete(&self, id: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 

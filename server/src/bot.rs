@@ -218,7 +218,7 @@ async fn fallback(bot: Bot, msg: Message) -> ResponseResult<()> {
                 msg.chat.id,
                 format!(
                     "Sorry, I only work with commands. \n\n{}",
-                    Command::descriptions().to_string()
+                    Command::descriptions()
                 ),
             )
             .await?;

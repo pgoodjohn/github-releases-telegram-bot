@@ -13,7 +13,7 @@ pub struct CachedRepositoryRelease {
     pub first_seen_at: DateTime<Utc>,
 }
 
-impl<'r> FromRow<'r, SqliteRow> for CachedRepositoryRelease {
+impl FromRow<'_, SqliteRow> for CachedRepositoryRelease {
     fn from_row(row: &SqliteRow) -> Result<Self, sqlx::Error> {
         let tracked_repository_id_str: String = row.try_get("tracked_repository_id")?;
         let tracked_repository_id = Uuid::parse_str(&tracked_repository_id_str)
