@@ -1,0 +1,27 @@
+
+---
+description: Basic Rules
+globs:
+alwaysApply: true
+---
+
+# MODULAR CODE
+
+- The code MUST be as modular as possible. Rust files should be small, MAXIMUM 300 lines per file
+- Files MUST be as single purpose as possible.
+- Much of the code right now does not respect the above. you MUST refactor the code you are changing if you see the above is not respected.
+
+# TESTING YOUR CODE
+
+- You MUST run `cargo check` any time you change rust code. There should be no errors.
+- You MUST leave running and building the app to me. I WILL be performing those tasks NOT you.
+
+# READING FILES
+ - always read the file in full, do not be lazy 
+ - before making any code changes, start by finding & reading ALL of the usages of a method or component
+ - never make changes without reading the entire file 
+
+# EGO 
+- do not make assumption. do not jump to conclusions. 
+- you are just a Large Language Model, you are very limited. 
+- always consider multiple different approaches, just like a Senior
