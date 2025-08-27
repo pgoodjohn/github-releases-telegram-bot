@@ -34,6 +34,18 @@ impl RepositoryUrl {
     pub fn url(&self) -> String {
         self.url.clone()
     }
+
+    pub fn owner_and_repo(&self) -> Option<(String, String)> {
+        let trimmed = self.url.strip_prefix("https://github.com/")?;
+        let mut parts = trimmed.split('/');
+        let owner = parts.next()?.trim();
+        let repo_raw = parts.next()?.trim();
+        if owner.is_empty() || repo_raw.is_empty() {
+            return None;
+        }
+        let repo = repo_raw.trim_end_matches(".git");
+        Some((owner.to_string(), repo.to_string()))
+    }
 }
 
 impl<'r> FromRow<'r, SqliteRow> for TrackedRelease {
