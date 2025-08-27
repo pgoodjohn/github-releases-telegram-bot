@@ -1,6 +1,6 @@
 use chrono::Local;
 use env_logger::Builder;
-use log::{LevelFilter};
+use log::LevelFilter;
 use std::io::Write;
 
 fn logger(log_level_filter: LevelFilter) {
@@ -38,9 +38,15 @@ fn debug_logger(log_level_filter: LevelFilter) {
 }
 
 pub fn init_from_environment() {
-    let debug_mode: bool = std::env::var("LOG_DEBUG").unwrap_or("false".to_string()).parse().unwrap();
+    let debug_mode: bool = std::env::var("LOG_DEBUG")
+        .unwrap_or("false".to_string())
+        .parse()
+        .unwrap();
 
-    let log_level_filter: LevelFilter = std::env::var("LOG_LEVEL").unwrap_or("info".to_string()).parse().unwrap();
+    let log_level_filter: LevelFilter = std::env::var("LOG_LEVEL")
+        .unwrap_or("info".to_string())
+        .parse()
+        .unwrap();
 
     if debug_mode {
         debug_logger(log_level_filter);

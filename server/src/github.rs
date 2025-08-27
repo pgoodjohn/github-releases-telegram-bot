@@ -66,7 +66,11 @@ pub(crate) async fn fetch_latest_release_tag_with_base(
 
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    log::warn!("GitHub releases request failed for {owner}/{repo}: status={} body={}", status, body);
+    log::warn!(
+        "GitHub releases request failed for {owner}/{repo}: status={} body={}",
+        status,
+        body
+    );
     Err("GitHub API returned non-success status".into())
 }
 
@@ -80,12 +84,10 @@ pub async fn fetch_latest_release_tag(
     fetch_latest_release_tag_with_base(client, owner, repo, token, &base).await
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockito::{Server, Matcher};
+    use mockito::{Matcher, Server};
 
     fn client() -> reqwest::Client {
         reqwest::Client::new()
@@ -102,9 +104,10 @@ mod tests {
             .create_async()
             .await;
 
-        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
-            .await
-            .expect("ok");
+        let tag =
+            fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+                .await
+                .expect("ok");
 
         assert_eq!(tag, Some("v1.2.3".to_string()));
     }
@@ -120,9 +123,10 @@ mod tests {
             .create_async()
             .await;
 
-        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
-            .await
-            .expect("ok");
+        let tag =
+            fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+                .await
+                .expect("ok");
 
         assert_eq!(tag, None);
     }
@@ -145,9 +149,10 @@ mod tests {
             .create_async()
             .await;
 
-        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
-            .await
-            .expect("ok");
+        let tag =
+            fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+                .await
+                .expect("ok");
 
         assert_eq!(tag, Some("v0.9.0".to_string()));
     }
@@ -170,9 +175,10 @@ mod tests {
             .create_async()
             .await;
 
-        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
-            .await
-            .expect("ok");
+        let tag =
+            fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+                .await
+                .expect("ok");
 
         assert_eq!(tag, None);
     }
@@ -187,7 +193,9 @@ mod tests {
             .create_async()
             .await;
 
-        let res = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url()).await;
+        let res =
+            fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+                .await;
         assert!(res.is_err());
     }
 }

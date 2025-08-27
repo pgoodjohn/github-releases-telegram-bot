@@ -1,14 +1,14 @@
-use teloxide::prelude::*;
 use std::sync::Arc;
+use teloxide::prelude::*;
 
-mod db;
+mod bot;
 mod configuration;
+mod db;
+mod github;
 mod logger;
+mod poller;
 mod tracked_repositories;
 mod utils;
-mod github;
-mod poller;
-mod bot;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,7 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bot = Bot::new(config.teloxide_token.clone());
 
-    let bot_state = Arc::new(bot::BotState { db: pool.clone(), config: config.clone() });
+    let bot_state = Arc::new(bot::BotState {
+        db: pool.clone(),
+        config: config.clone(),
+    });
 
     let polling_state = Arc::new(poller::AppState { db: pool.clone() });
     let polling_bot = bot.clone();
@@ -40,4 +43,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

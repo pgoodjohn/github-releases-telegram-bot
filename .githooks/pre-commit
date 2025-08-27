@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Format Rust code in the server crate and stage changes
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/server"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo not found. Please install the Rust toolchain (rustup)." >&2
+  exit 1
+fi
+
+# Ensure rustfmt is available; try to install automatically if missing
+if ! rustup component list --installed | grep -q '^rustfmt'; then
+  echo "rustfmt not installed. Attempting to install rustfmt..."
+  if ! rustup component add rustfmt >/dev/null 2>&1; then
+    echo "Failed to install rustfmt automatically. Install with: rustup component add rustfmt" >&2
+    exit 1
+  fi
+fi
+
+echo "Running cargo fmt to apply formatting..."
+cargo fmt --all
+
+# Return to repo root and stage any formatting changes inside server/
+cd "$REPO_ROOT"
+git add -A server
+
+# Verify formatting is clean; do not block commit if we've already applied formatting
+cd "$REPO_ROOT/server"
+if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+  echo "Formatting changes were applied and staged."
+fi
+
+# Ensure clippy is available; try to install automatically if missing
+if ! rustup component list --installed | grep -q '^clippy'; then
+  echo "clippy not installed. Attempting to install clippy..."
+  if ! rustup component add clippy >/dev/null 2>&1; then
+    echo "Failed to install clippy automatically. Install with: rustup component add clippy" >&2
+    exit 1
+  fi
+fi
+
+echo "Running cargo check..."
+cargo check --all-targets --all-features
+
+echo "Running cargo clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+
+exit 0
+
+

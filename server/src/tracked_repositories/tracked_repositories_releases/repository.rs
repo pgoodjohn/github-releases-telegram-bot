@@ -1,12 +1,18 @@
-use std::error::Error;
+use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
 use async_trait::async_trait;
 use sqlx::{self, sqlite::SqlitePool};
-use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
+use std::error::Error;
 
 #[async_trait]
 pub trait CachedRepositoryReleasesRepository: Send + Sync {
-    async fn save(&self, cached: &CachedRepositoryRelease) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn find_by_tracked_release_id(&self, id: &uuid::Uuid) -> Result<Option<CachedRepositoryRelease>, Box<dyn Error + Send + Sync>>;
+    async fn save(
+        &self,
+        cached: &CachedRepositoryRelease,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn find_by_tracked_release_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<Option<CachedRepositoryRelease>, Box<dyn Error + Send + Sync>>;
 }
 
 pub struct SqliteCachedRepositoryReleasesRepository {
@@ -14,12 +20,17 @@ pub struct SqliteCachedRepositoryReleasesRepository {
 }
 
 impl SqliteCachedRepositoryReleasesRepository {
-    pub fn new(pool: SqlitePool) -> Self { Self { pool } }
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
 }
 
 #[async_trait]
 impl CachedRepositoryReleasesRepository for SqliteCachedRepositoryReleasesRepository {
-    async fn save(&self, cached: &CachedRepositoryRelease) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn save(
+        &self,
+        cached: &CachedRepositoryRelease,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
             r#"
             INSERT INTO tracked_repository_releases (tracked_repository_id, tag_name, first_seen_at)
@@ -41,7 +52,10 @@ impl CachedRepositoryReleasesRepository for SqliteCachedRepositoryReleasesReposi
         Ok(())
     }
 
-    async fn find_by_tracked_release_id(&self, id: &uuid::Uuid) -> Result<Option<CachedRepositoryRelease>, Box<dyn Error + Send + Sync>> {
+    async fn find_by_tracked_release_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<Option<CachedRepositoryRelease>, Box<dyn Error + Send + Sync>> {
         let rec = sqlx::query_as::<_, CachedRepositoryRelease>(
             r#"
             SELECT tracked_repository_id, tag_name, first_seen_at
@@ -57,14 +71,14 @@ impl CachedRepositoryReleasesRepository for SqliteCachedRepositoryReleasesReposi
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracked_repositories::{TrackedRelease, RepositoryUrl};
-    use crate::tracked_repositories::repository::{SqliteTrackedRepositoriesRepository, TrackedRepositoriesRepository};
-    use chrono::{Utc, Duration};
+    use crate::tracked_repositories::repository::{
+        SqliteTrackedRepositoriesRepository, TrackedRepositoriesRepository,
+    };
+    use crate::tracked_repositories::{RepositoryUrl, TrackedRelease};
+    use chrono::{Duration, Utc};
     use sqlx::sqlite::SqlitePoolOptions;
     use uuid::Uuid;
 
@@ -89,7 +103,8 @@ mod tests {
         let mut tracked = TrackedRelease {
             id: Uuid::now_v7(),
             repository_name: "owner/repo".to_string(),
-            repository_url: RepositoryUrl::new("https://github.com/owner/repo".to_string()).unwrap(),
+            repository_url: RepositoryUrl::new("https://github.com/owner/repo".to_string())
+                .unwrap(),
             chat_id: 1,
             created_at: now,
             updated_at: now,
@@ -190,4 +205,3 @@ mod tests {
         assert_eq!(fetched.first_seen_at, t2);
     }
 }
-

@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   test:
-    name: Run tests
+    name: Run CI Checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,6 +31,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -42,6 +44,21 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
+      - name: Audit dependencies
+        run: cargo audit
+
+      - name: Format (rustfmt)
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Check
+        run: cargo check --locked --all-targets
 
       - name: Build
         run: cargo build --locked --release

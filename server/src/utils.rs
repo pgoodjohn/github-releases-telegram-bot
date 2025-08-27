@@ -4,7 +4,10 @@ pub fn html_escape(input: &str) -> Cow<'_, str> {
     let mut needs_escaping = false;
     for ch in input.chars() {
         match ch {
-            '&' | '<' | '>' | '"' | '\'' => { needs_escaping = true; break; }
+            '&' | '<' | '>' | '"' | '\'' => {
+                needs_escaping = true;
+                break;
+            }
             _ => {}
         }
     }
@@ -24,5 +27,3 @@ pub fn html_escape(input: &str) -> Cow<'_, str> {
     }
     Cow::Owned(escaped)
 }
-
-
