@@ -1,5 +1,6 @@
 pub mod repository;
 pub mod tracked_repositories_releases;
+pub mod subscriptions;
 
 use chrono::{DateTime, Utc};
 use uuid::{Uuid};
