@@ -40,8 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(State { db: pool });
 
     let handler = Update::filter_message()
-        .filter_command::<Command>()
-        .endpoint(answer);
+        .branch(
+            dptree::entry()
+                .filter_command::<Command>()
+                .endpoint(answer)
+        )
+        .branch(dptree::endpoint(fallback));
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![state])
@@ -59,6 +63,8 @@ enum Command {
     TrackRepo { name: String, url: String },
     #[command(description = "list all tracked repositories")]
     ListRepos,
+    #[command(description = "display this help message")]
+    Help,
 }
 
 async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> ResponseResult<()> {
@@ -149,8 +155,22 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<State>) -> Resp
                 }
             }
         }
+        Command::Help => {
+            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+        }
     };
 
+    Ok(())
+}
+
+async fn fallback(bot: Bot, msg: Message) -> ResponseResult<()> {
+    if let Some(text) = msg.text() {
+        if text.starts_with('/') {
+            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+        } else {
+            bot.send_message(msg.chat.id, format!("Sorry, I only work with commands. \n\n{}", Command::descriptions().to_string())).await?;
+        }
+    }
     Ok(())
 }
 
