@@ -10,6 +10,7 @@ impl Configuration {
     fn resolve_secret_value(key: &str, value: String) -> Result<String, String> {
         const SECRET_PREFIX: &str = "secret:";
         if let Some(rest) = value.strip_prefix(SECRET_PREFIX) {
+            log::debug!("Resolving secret value for {}", key);
             let path = rest.trim();
             if path.is_empty() {
                 return Err(format!(
