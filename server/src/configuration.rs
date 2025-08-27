@@ -25,7 +25,6 @@ impl Configuration {
                 )
             })?;
             let content = content.trim_end_matches(&['\n', '\r'][..]).to_string();
-            log::debug!("Resolved secret value for {} to {}", key, content);
             Ok(content)
         } else {
             Ok(value)
