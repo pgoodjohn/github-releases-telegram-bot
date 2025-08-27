@@ -7,6 +7,7 @@ use crate::tracked_repositories::TrackedRelease;
 pub trait TrackedRepositoriesRepository: Send + Sync {
     async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn find_all(&self) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    async fn find_all_by_chat_id(&self, chat_id: i64) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
     async fn find_by_id(&self, id: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
     async fn find_by_repository_url(&self, repository_url: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
     async fn delete(&self, id: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
@@ -56,6 +57,22 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
             ORDER BY created_at DESC
             "#,
         )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(releases)
+    }
+
+    async fn find_all_by_chat_id(&self, chat_id: i64) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>> {
+        let releases = sqlx::query_as::<_, TrackedRelease>(
+            r#"
+            SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
+            FROM tracked_repositories
+            WHERE chat_id = ?1
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(chat_id)
         .fetch_all(&self.pool)
         .await?;
 
