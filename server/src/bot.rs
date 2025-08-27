@@ -17,6 +17,7 @@ use crate::tracked_repositories::tracked_repositories_releases::repository::{
     CachedRepositoryReleasesRepository, SqliteCachedRepositoryReleasesRepository,
 };
 use crate::utils::html_escape;
+use urlencoding::encode;
 
 pub struct BotState {
     pub db: SqlitePool,
@@ -220,14 +221,34 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
                             SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
 
                         for r in repos {
-                            let latest_str =
-                                match cache_repo.find_by_tracked_release_id(&r.id).await {
-                                    Ok(Some(cached)) => format!("latest: {}", cached.tag_name),
-                                    _ => "latest: unknown".to_string(),
-                                };
                             let url_string = r.repository_url.to_string();
                             let url_escaped = html_escape(&url_string);
                             let name_escaped = html_escape(&r.repository_name);
+                            let latest_str = match cache_repo
+                                .find_by_tracked_release_id(&r.id)
+                                .await
+                            {
+                                Ok(Some(cached)) => {
+                                    if let Some((owner, repo)) = r.repository_url.owner_and_repo() {
+                                        let release_url = format!(
+                                            "https://github.com/{}/{}/releases/tag/{}",
+                                            owner,
+                                            repo,
+                                            encode(&cached.tag_name)
+                                        );
+                                        let release_url_escaped = html_escape(&release_url);
+                                        let tag_escaped = html_escape(&cached.tag_name);
+                                        format!(
+                                            "latest: <a href=\"{}\">{}</a>",
+                                            release_url_escaped, tag_escaped
+                                        )
+                                    } else {
+                                        let tag_escaped = html_escape(&cached.tag_name);
+                                        format!("latest: {}", tag_escaped)
+                                    }
+                                }
+                                _ => "latest: unknown".to_string(),
+                            };
                             lines.push(format!(
                                 "- <a href=\"{}\">{}</a> - {}",
                                 url_escaped, name_escaped, latest_str

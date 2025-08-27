@@ -11,6 +11,7 @@ use crate::tracked_repositories::tracked_repositories_releases::CachedRepository
 use crate::tracked_repositories::tracked_repositories_releases::repository::CachedRepositoryReleasesRepository;
 use crate::tracked_repositories::tracked_repositories_releases::repository::SqliteCachedRepositoryReleasesRepository;
 use crate::utils::html_escape;
+use urlencoding::encode;
 
 pub struct AppState {
     pub db: sqlx::sqlite::SqlitePool,
@@ -95,9 +96,16 @@ pub(crate) async fn poll_once(
                                 let url_escaped = html_escape(&url_string);
                                 let name_escaped = html_escape(&r.repository_name);
                                 let tag_escaped = html_escape(&latest_tag);
+                                let release_url = format!(
+                                    "https://github.com/{}/{}/releases/tag/{}",
+                                    owner,
+                                    repo,
+                                    encode(&latest_tag)
+                                );
+                                let release_url_escaped = html_escape(&release_url);
                                 let text = format!(
-                                    "New release for <a href=\"{}\">{}</a>: <b>{}</b>",
-                                    url_escaped, name_escaped, tag_escaped,
+                                    "New release for <a href=\"{}\">{}</a>: <a href=\"{}\"><b>{}</b></a>",
+                                    url_escaped, name_escaped, release_url_escaped, tag_escaped,
                                 );
                                 let _ = bot
                                     .send_message(ChatId(r.chat_id), text)
