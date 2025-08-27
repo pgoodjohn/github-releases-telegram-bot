@@ -1,10 +1,10 @@
 pub mod repository;
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
-use serde::{Serialize, Deserialize};
-use sqlx::{FromRow, Row};
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
+use sqlx::{FromRow, Row};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedRepositoryRelease {
@@ -22,8 +22,10 @@ impl<'r> FromRow<'r, SqliteRow> for CachedRepositoryRelease {
         let tag_name: String = row.try_get("tag_name")?;
         let first_seen_at: DateTime<Utc> = row.try_get("first_seen_at")?;
 
-        Ok(Self { tracked_repository_id, tag_name, first_seen_at })
+        Ok(Self {
+            tracked_repository_id,
+            tag_name,
+            first_seen_at,
+        })
     }
 }
-
-

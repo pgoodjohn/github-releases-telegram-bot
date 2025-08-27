@@ -1,16 +1,16 @@
 use std::sync::Arc;
 use teloxide::prelude::*;
-use teloxide::types::{ParseMode, ChatId};
-use tokio::time::{sleep, Duration};
+use teloxide::types::{ChatId, ParseMode};
+use tokio::time::{Duration, sleep};
 
+use crate::configuration::Configuration;
+use crate::github::{fetch_latest_release_tag, fetch_latest_release_tag_with_base};
 use crate::tracked_repositories::repository::SqliteTrackedRepositoriesRepository;
 use crate::tracked_repositories::repository::TrackedRepositoriesRepository;
-use crate::tracked_repositories::tracked_repositories_releases::repository::SqliteCachedRepositoryReleasesRepository;
-use crate::tracked_repositories::tracked_repositories_releases::repository::CachedRepositoryReleasesRepository;
 use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
+use crate::tracked_repositories::tracked_repositories_releases::repository::CachedRepositoryReleasesRepository;
+use crate::tracked_repositories::tracked_repositories_releases::repository::SqliteCachedRepositoryReleasesRepository;
 use crate::utils::html_escape;
-use crate::github::{fetch_latest_release_tag, fetch_latest_release_tag_with_base};
-use crate::configuration::Configuration;
 
 pub struct AppState {
     pub db: sqlx::sqlite::SqlitePool,
@@ -51,26 +51,28 @@ pub(crate) async fn poll_once(
             for r in repos {
                 if let Some((owner, repo)) = r.repository_url.owner_and_repo() {
                     let latest = if let Some(base) = github_base_override {
-                        fetch_latest_release_tag_with_base(client, &owner, &repo, token_opt, base).await
+                        fetch_latest_release_tag_with_base(client, &owner, &repo, token_opt, base)
+                            .await
                     } else {
                         fetch_latest_release_tag(client, &owner, &repo, token_opt).await
                     };
                     match latest {
                         Ok(Some(latest_tag)) => {
                             let mut should_notify = false;
-                            let previous_tag = match cache_repo.find_by_tracked_release_id(&r.id).await {
-                                Ok(Some(cached)) => {
-                                    if cached.tag_name != latest_tag {
-                                        should_notify = true;
+                            let previous_tag =
+                                match cache_repo.find_by_tracked_release_id(&r.id).await {
+                                    Ok(Some(cached)) => {
+                                        if cached.tag_name != latest_tag {
+                                            should_notify = true;
+                                        }
+                                        Some(cached.tag_name)
                                     }
-                                    Some(cached.tag_name)
-                                }
-                                Ok(None) => {
-                                    should_notify = false;
-                                    None
-                                }
-                                Err(_) => None,
-                            };
+                                    Ok(None) => {
+                                        should_notify = false;
+                                        None
+                                    }
+                                    Err(_) => None,
+                                };
 
                             if previous_tag.as_deref() != Some(latest_tag.as_str()) {
                                 let cached = CachedRepositoryRelease {
@@ -82,7 +84,12 @@ pub(crate) async fn poll_once(
                             }
 
                             if should_notify {
-                                log::debug!("Sending notification for {}/{} to {}", owner, repo, r.chat_id);
+                                log::debug!(
+                                    "Sending notification for {}/{} to {}",
+                                    owner,
+                                    repo,
+                                    r.chat_id
+                                );
 
                                 let url_string = r.repository_url.to_string();
                                 let url_escaped = html_escape(&url_string);
@@ -90,9 +97,7 @@ pub(crate) async fn poll_once(
                                 let tag_escaped = html_escape(&latest_tag);
                                 let text = format!(
                                     "New release for <a href=\"{}\">{}</a>: <b>{}</b>",
-                                    url_escaped,
-                                    name_escaped,
-                                    tag_escaped,
+                                    url_escaped, name_escaped, tag_escaped,
                                 );
                                 let _ = bot
                                     .send_message(ChatId(r.chat_id), text)
@@ -104,7 +109,11 @@ pub(crate) async fn poll_once(
                             log::info!("No new release for {}/{}", owner, repo);
                         }
                         Err(e) => {
-                            log::warn!("Poller failed to fetch latest release for {}: {}", r.repository_url, e);
+                            log::warn!(
+                                "Poller failed to fetch latest release for {}: {}",
+                                r.repository_url,
+                                e
+                            );
                         }
                     }
                 }
@@ -116,15 +125,14 @@ pub(crate) async fn poll_once(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracked_repositories::{TrackedRelease, RepositoryUrl};
-    use sqlx::sqlite::SqlitePoolOptions;
-    use uuid::Uuid;
+    use crate::tracked_repositories::{RepositoryUrl, TrackedRelease};
     use chrono::Utc;
     use mockito::Server;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use uuid::Uuid;
 
     async fn setup_state() -> Arc<AppState> {
         let pool = SqlitePoolOptions::new()
@@ -141,7 +149,12 @@ mod tests {
         Arc::new(AppState { db: pool })
     }
 
-    async fn insert_tracked(state: &Arc<AppState>, name: &str, url: &str, chat_id: i64) -> TrackedRelease {
+    async fn insert_tracked(
+        state: &Arc<AppState>,
+        name: &str,
+        url: &str,
+        chat_id: i64,
+    ) -> TrackedRelease {
         let repo = SqliteTrackedRepositoriesRepository::new(state.db.clone());
         let mut tr = TrackedRelease {
             id: Uuid::new_v4(),
@@ -169,7 +182,8 @@ mod tests {
         let bot = Bot::new(token).set_api_url(reqwest::Url::parse(&tg.url()).unwrap());
 
         // Track repository
-        let tracked = insert_tracked(&state, "owner/repo", "https://github.com/owner/repo", 123).await;
+        let tracked =
+            insert_tracked(&state, "owner/repo", "https://github.com/owner/repo", 123).await;
 
         // 1) First time seeing tag -> cache saved, no notify
         let _m_gh1 = gh
@@ -182,7 +196,10 @@ mod tests {
             .await;
 
         let _m_tg0 = tg
-            .mock("POST", mockito::Matcher::Exact(format!("/bot{token}/SendMessage")))
+            .mock(
+                "POST",
+                mockito::Matcher::Exact(format!("/bot{token}/SendMessage")),
+            )
             .with_status(200)
             .with_body("invalid-json")
             .expect(0)
@@ -192,7 +209,11 @@ mod tests {
         poll_once(state.clone(), &bot, &client, None, Some(&gh.url())).await;
 
         let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
-        let cached = cache_repo.find_by_tracked_release_id(&tracked.id).await.unwrap().expect("cached row");
+        let cached = cache_repo
+            .find_by_tracked_release_id(&tracked.id)
+            .await
+            .unwrap()
+            .expect("cached row");
         assert_eq!(cached.tag_name, "v1.0.0");
 
         // 2) Same tag again -> no notify, cache unchanged
@@ -206,7 +227,10 @@ mod tests {
             .await;
 
         let _m_tg1 = tg
-            .mock("POST", mockito::Matcher::Exact(format!("/bot{token}/SendMessage")))
+            .mock(
+                "POST",
+                mockito::Matcher::Exact(format!("/bot{token}/SendMessage")),
+            )
             .with_status(200)
             .with_body("invalid-json")
             .expect(0)
@@ -215,7 +239,11 @@ mod tests {
 
         let first_seen_at_before = cached.first_seen_at;
         poll_once(state.clone(), &bot, &client, None, Some(&gh.url())).await;
-        let cached_again = cache_repo.find_by_tracked_release_id(&tracked.id).await.unwrap().unwrap();
+        let cached_again = cache_repo
+            .find_by_tracked_release_id(&tracked.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(cached_again.tag_name, "v1.0.0");
         assert_eq!(cached_again.first_seen_at, first_seen_at_before);
 
@@ -230,7 +258,10 @@ mod tests {
             .await;
 
         let m_tg2 = tg
-            .mock("POST", mockito::Matcher::Exact(format!("/bot{token}/SendMessage")))
+            .mock(
+                "POST",
+                mockito::Matcher::Exact(format!("/bot{token}/SendMessage")),
+            )
             .with_status(200)
             // We can return invalid JSON; the poller ignores send errors
             .with_body("invalid-json")
@@ -241,10 +272,12 @@ mod tests {
         poll_once(state.clone(), &bot, &client, None, Some(&gh.url())).await;
         m_tg2.assert();
 
-        let cached_new = cache_repo.find_by_tracked_release_id(&tracked.id).await.unwrap().unwrap();
+        let cached_new = cache_repo
+            .find_by_tracked_release_id(&tracked.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(cached_new.tag_name, "v1.1.0");
         assert!(cached_new.first_seen_at > first_seen_at_before);
     }
 }
-
-

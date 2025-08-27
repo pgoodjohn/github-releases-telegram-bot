@@ -1,15 +1,27 @@
-use std::error::Error;
+use crate::tracked_repositories::TrackedRelease;
 use async_trait::async_trait;
 use sqlx::{self, sqlite::SqlitePool};
-use crate::tracked_repositories::TrackedRelease;
+use std::error::Error;
 
 #[async_trait]
 pub trait TrackedRepositoriesRepository: Send + Sync {
-    async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn save(
+        &self,
+        tracked_release: &mut TrackedRelease,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn find_all(&self) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
-    async fn find_all_by_chat_id(&self, chat_id: i64) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
-    async fn find_by_id(&self, id: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
-    async fn find_by_repository_url(&self, repository_url: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    async fn find_all_by_chat_id(
+        &self,
+        chat_id: i64,
+    ) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    async fn find_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
+    async fn find_by_repository_url(
+        &self,
+        repository_url: &str,
+    ) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>>;
     async fn delete(&self, id: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
@@ -25,7 +37,10 @@ impl SqliteTrackedRepositoriesRepository {
 
 #[async_trait]
 impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
-    async fn save(&self, tracked_release: &mut TrackedRelease) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn save(
+        &self,
+        tracked_release: &mut TrackedRelease,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
             r#"
             INSERT INTO tracked_repositories (id, repository_name, repository_url, chat_id, created_at, updated_at)
@@ -63,7 +78,10 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
         Ok(releases)
     }
 
-    async fn find_all_by_chat_id(&self, chat_id: i64) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>> {
+    async fn find_all_by_chat_id(
+        &self,
+        chat_id: i64,
+    ) -> Result<Vec<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let releases = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
@@ -79,7 +97,10 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
         Ok(releases)
     }
 
-    async fn find_by_id(&self, id: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
+    async fn find_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
@@ -93,7 +114,10 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
         Ok(rec)
     }
 
-    async fn find_by_repository_url(&self, repository_url: &str) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
+    async fn find_by_repository_url(
+        &self,
+        repository_url: &str,
+    ) -> Result<Option<TrackedRelease>, Box<dyn Error + Send + Sync>> {
         let rec = sqlx::query_as::<_, TrackedRelease>(
             r#"
             SELECT id, repository_name, repository_url, chat_id, created_at, updated_at
@@ -118,12 +142,10 @@ impl TrackedRepositoriesRepository for SqliteTrackedRepositoriesRepository {
 
 // Cached releases repository moved under tracked_repositories_releases
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracked_repositories::{TrackedRelease, RepositoryUrl};
+    use crate::tracked_repositories::{RepositoryUrl, TrackedRelease};
     use chrono::{Duration, Utc};
     use sqlx::sqlite::SqlitePoolOptions;
     use uuid::Uuid;
@@ -153,7 +175,8 @@ mod tests {
         TrackedRelease {
             id: Uuid::now_v7(),
             repository_name: repository_name.to_string(),
-            repository_url: RepositoryUrl::new(repository_url.to_string()).expect("valid github url"),
+            repository_url: RepositoryUrl::new(repository_url.to_string())
+                .expect("valid github url"),
             chat_id,
             created_at,
             updated_at,
@@ -183,7 +206,10 @@ mod tests {
 
         assert_eq!(fetched.id, rel.id);
         assert_eq!(fetched.repository_name, "repo-one");
-        assert_eq!(fetched.repository_url.url(), "https://github.com/owner/repo-one");
+        assert_eq!(
+            fetched.repository_url.url(),
+            "https://github.com/owner/repo-one"
+        );
         assert_eq!(fetched.chat_id, 42);
     }
 
@@ -221,19 +247,19 @@ mod tests {
             earlier,
             earlier,
         );
-        let mut b = make_release(
-            "beta",
-            "https://github.com/owner/beta",
-            200,
-            now,
-            now,
-        );
+        let mut b = make_release("beta", "https://github.com/owner/beta", 200, now, now);
 
-        TrackedRepositoriesRepository::save(&repo, &mut a).await.unwrap();
-        TrackedRepositoriesRepository::save(&repo, &mut b).await.unwrap();
+        TrackedRepositoriesRepository::save(&repo, &mut a)
+            .await
+            .unwrap();
+        TrackedRepositoriesRepository::save(&repo, &mut b)
+            .await
+            .unwrap();
 
         // find_all ordered by created_at DESC -> b then a
-        let all = TrackedRepositoriesRepository::find_all(&repo).await.unwrap();
+        let all = TrackedRepositoriesRepository::find_all(&repo)
+            .await
+            .unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].id, b.id);
         assert_eq!(all[1].id, a.id);
@@ -251,23 +277,22 @@ mod tests {
         let repo = setup_repo().await;
         let now = Utc::now();
         let later = now + Duration::minutes(1);
-        let mut rel = make_release(
-            "gamma",
-            "https://github.com/owner/gamma",
-            1,
-            now,
-            now,
-        );
+        let mut rel = make_release("gamma", "https://github.com/owner/gamma", 1, now, now);
 
-        TrackedRepositoriesRepository::save(&repo, &mut rel).await.unwrap();
+        TrackedRepositoriesRepository::save(&repo, &mut rel)
+            .await
+            .unwrap();
 
         // modify fields and save again
         rel.repository_name = "gamma-renamed".to_string();
         rel.chat_id = 2;
-        rel.repository_url = RepositoryUrl::new("https://github.com/owner/gamma-renamed".to_string()).unwrap();
+        rel.repository_url =
+            RepositoryUrl::new("https://github.com/owner/gamma-renamed".to_string()).unwrap();
         rel.updated_at = later;
 
-        TrackedRepositoriesRepository::save(&repo, &mut rel).await.unwrap();
+        TrackedRepositoriesRepository::save(&repo, &mut rel)
+            .await
+            .unwrap();
 
         let fetched = TrackedRepositoriesRepository::find_by_id(&repo, &rel.id.to_string())
             .await
@@ -276,7 +301,10 @@ mod tests {
 
         assert_eq!(fetched.repository_name, "gamma-renamed");
         assert_eq!(fetched.chat_id, 2);
-        assert_eq!(fetched.repository_url.url(), "https://github.com/owner/gamma-renamed");
+        assert_eq!(
+            fetched.repository_url.url(),
+            "https://github.com/owner/gamma-renamed"
+        );
         assert_eq!(fetched.updated_at, later);
     }
 
@@ -284,15 +312,11 @@ mod tests {
     async fn delete_removes_record() {
         let repo = setup_repo().await;
         let now = Utc::now();
-        let mut rel = make_release(
-            "delta",
-            "https://github.com/owner/delta",
-            99,
-            now,
-            now,
-        );
+        let mut rel = make_release("delta", "https://github.com/owner/delta", 99, now, now);
 
-        TrackedRepositoriesRepository::save(&repo, &mut rel).await.unwrap();
+        TrackedRepositoriesRepository::save(&repo, &mut rel)
+            .await
+            .unwrap();
 
         TrackedRepositoriesRepository::delete(&repo, &rel.id.to_string())
             .await

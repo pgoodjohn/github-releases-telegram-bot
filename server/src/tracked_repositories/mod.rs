@@ -3,11 +3,11 @@ pub mod tracked_repositories_releases;
 // subscriptions module removed; chat_id stored on tracked_repositories
 
 use chrono::{DateTime, Utc};
-use uuid::{Uuid};
-use serde::{Serialize, Deserialize};
-use sqlx::{FromRow, Row};
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqliteRow;
+use sqlx::{FromRow, Row};
 use std::fmt;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackedRelease {
@@ -21,7 +21,7 @@ pub struct TrackedRelease {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryUrl {
-   url: String,
+    url: String,
 }
 
 impl RepositoryUrl {
@@ -54,14 +54,15 @@ impl RepositoryUrl {
 impl<'r> FromRow<'r, SqliteRow> for TrackedRelease {
     fn from_row(row: &SqliteRow) -> Result<Self, sqlx::Error> {
         let id_str: String = row.try_get("id")?;
-        let id = Uuid::parse_str(&id_str)
-            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let id = Uuid::parse_str(&id_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
         let repository_name: String = row.try_get("repository_name")?;
         let repository_url_str: String = row.try_get("repository_url")?;
 
         // Construct directly to avoid validating DB contents at read time
-        let repository_url = RepositoryUrl { url: repository_url_str };
+        let repository_url = RepositoryUrl {
+            url: repository_url_str,
+        };
 
         let chat_id: i64 = row.try_get("chat_id")?;
 

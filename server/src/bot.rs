@@ -12,10 +12,10 @@ use crate::github::fetch_latest_release_tag;
 use crate::tracked_repositories::repository::{
     SqliteTrackedRepositoriesRepository, TrackedRepositoriesRepository,
 };
+use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
 use crate::tracked_repositories::tracked_repositories_releases::repository::{
     CachedRepositoryReleasesRepository, SqliteCachedRepositoryReleasesRepository,
 };
-use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
 use crate::utils::html_escape;
 
 pub struct BotState {
@@ -24,7 +24,10 @@ pub struct BotState {
 }
 
 #[derive(BotCommands, Clone)]
-#[command(rename_rule = "snake_case", description = "These commands are supported:")]
+#[command(
+    rename_rule = "snake_case",
+    description = "These commands are supported:"
+)]
 pub enum Command {
     #[command(description = "track a repository: <name> <url>", parse_with = "split")]
     Track { name: String, url: String },
@@ -57,7 +60,8 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
             log::info!("Tracking repository: {name} ({url})");
 
             if name.is_empty() {
-                bot.send_message(msg.chat.id, "Please provide a name for the repository.").await?;
+                bot.send_message(msg.chat.id, "Please provide a name for the repository.")
+                    .await?;
                 return Ok(());
             }
 
@@ -76,14 +80,30 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
                     existing.repository_name = name.clone();
                     existing.updated_at = chrono::Utc::now();
                     if let Err(e) = repository.save(&mut existing).await {
-                        bot.send_message(msg.chat.id, format!("Failed to update tracked repository: {e}")).await?;
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("Failed to update tracked repository: {e}"),
+                        )
+                        .await?;
                     } else {
-                        bot.send_message(msg.chat.id, format!("Updated tracking for {name} ({url}).")).await?;
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("Updated tracking for {name} ({url})."),
+                        )
+                        .await?;
                         if let Some((owner, repo)) = existing.repository_url.owner_and_repo() {
                             let client = reqwest::Client::new();
                             let token_opt = state.config.github_token.clone();
-                            if let Ok(Some(tag)) = fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref()).await {
-                                let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+                            if let Ok(Some(tag)) = fetch_latest_release_tag(
+                                &client,
+                                &owner,
+                                &repo,
+                                token_opt.as_deref(),
+                            )
+                            .await
+                            {
+                                let cache_repo =
+                                    SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
                                 let cached = CachedRepositoryRelease {
                                     tracked_repository_id: existing.id,
                                     tag_name: tag,
@@ -107,14 +127,24 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
                         updated_at: now,
                     };
                     if let Err(e) = repository.save(&mut tracked).await {
-                        bot.send_message(msg.chat.id, format!("Failed to track repository: {e}")).await?;
+                        bot.send_message(msg.chat.id, format!("Failed to track repository: {e}"))
+                            .await?;
                     } else {
-                        bot.send_message(msg.chat.id, format!("Now tracking {name} ({url}).")).await?;
+                        bot.send_message(msg.chat.id, format!("Now tracking {name} ({url})."))
+                            .await?;
                         if let Some((owner, repo)) = tracked.repository_url.owner_and_repo() {
                             let client = reqwest::Client::new();
                             let token_opt = state.config.github_token.clone();
-                            if let Ok(Some(tag)) = fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref()).await {
-                                let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+                            if let Ok(Some(tag)) = fetch_latest_release_tag(
+                                &client,
+                                &owner,
+                                &repo,
+                                token_opt.as_deref(),
+                            )
+                            .await
+                            {
+                                let cache_repo =
+                                    SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
                                 let cached = CachedRepositoryRelease {
                                     tracked_repository_id: tracked.id,
                                     tag_name: tag,
@@ -126,7 +156,8 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
                     }
                 }
                 Err(e) => {
-                    bot.send_message(msg.chat.id, format!("Failed to query repository: {e}")).await?;
+                    bot.send_message(msg.chat.id, format!("Failed to query repository: {e}"))
+                        .await?;
                 }
             }
         }
@@ -135,32 +166,42 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
             match repository.find_all_by_chat_id(msg.chat.id.0).await {
                 Ok(repos) => {
                     if repos.is_empty() {
-                        bot.send_message(msg.chat.id, "No repositories tracked yet.").await?;
+                        bot.send_message(msg.chat.id, "No repositories tracked yet.")
+                            .await?;
                     } else {
                         let mut lines: Vec<String> = Vec::with_capacity(repos.len());
-                        let cache_repo = SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+                        let cache_repo =
+                            SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
 
                         for r in repos {
-                            let latest_str = match cache_repo.find_by_tracked_release_id(&r.id).await {
-                                Ok(Some(cached)) => format!("latest: {}", cached.tag_name),
-                                _ => "latest: unknown".to_string(),
-                            };
+                            let latest_str =
+                                match cache_repo.find_by_tracked_release_id(&r.id).await {
+                                    Ok(Some(cached)) => format!("latest: {}", cached.tag_name),
+                                    _ => "latest: unknown".to_string(),
+                                };
                             let url_string = r.repository_url.to_string();
                             let url_escaped = html_escape(&url_string);
                             let name_escaped = html_escape(&r.repository_name);
-                            lines.push(format!("- <a href=\"{}\">{}</a> - {}", url_escaped, name_escaped, latest_str));
+                            lines.push(format!(
+                                "- <a href=\"{}\">{}</a> - {}",
+                                url_escaped, name_escaped, latest_str
+                            ));
                         }
                         let text = format!("Tracked repositories:\n{}", lines.join("\n"));
-                        bot.send_message(msg.chat.id, text).parse_mode(ParseMode::Html).await?;
+                        bot.send_message(msg.chat.id, text)
+                            .parse_mode(ParseMode::Html)
+                            .await?;
                     }
                 }
                 Err(e) => {
-                    bot.send_message(msg.chat.id, format!("Failed to list repositories: {e}")).await?;
+                    bot.send_message(msg.chat.id, format!("Failed to list repositories: {e}"))
+                        .await?;
                 }
             }
         }
         Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                .await?;
         }
     };
 
@@ -170,7 +211,8 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
 async fn fallback(bot: Bot, msg: Message) -> ResponseResult<()> {
     if let Some(text) = msg.text() {
         if text.starts_with('/') {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+            bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                .await?;
         } else {
             bot.send_message(
                 msg.chat.id,
@@ -184,5 +226,3 @@ async fn fallback(bot: Bot, msg: Message) -> ResponseResult<()> {
     }
     Ok(())
 }
-
-
