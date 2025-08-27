@@ -2,10 +2,9 @@ name: CI and Docker Release
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ main ]
+    branches: [ '**' ]
 
 permissions:
   contents: read
@@ -95,9 +94,8 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
-            type=ref,event=tag
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            # do not tag latest on any branch
 
       - name: Build and push
         uses: docker/build-push-action@v6
