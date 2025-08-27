@@ -35,6 +35,11 @@ pub enum Command {
 }
 
 pub async fn run(bot: Bot, state: Arc<BotState>) {
+    // Register available bot commands with Telegram at startup
+    if let Err(e) = bot.set_my_commands(Command::bot_commands()).await {
+        log::warn!("Failed to set Telegram bot commands: {}", e);
+    }
+
     let handler = Update::filter_message()
         .branch(dptree::entry().filter_command::<Command>().endpoint(answer))
         .branch(dptree::endpoint(fallback));
