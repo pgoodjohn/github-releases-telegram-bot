@@ -14,7 +14,8 @@ fn logger(log_level_filter: LevelFilter) {
                 record.args()
             )
         })
-        .filter(None, log_level_filter)
+        .filter(Some("github_release_bot"), log_level_filter)
+        .filter(None, LevelFilter::Info)
         .init();
 }
 
@@ -31,7 +32,8 @@ fn debug_logger(log_level_filter: LevelFilter) {
                 record.args()
             )
         })
-        .filter(None, log_level_filter)
+        .filter(Some("github_release_bot"), log_level_filter)
+        .filter(None, LevelFilter::Info)
         .init();
 }
 
