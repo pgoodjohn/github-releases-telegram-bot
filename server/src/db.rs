@@ -1,7 +1,7 @@
 use crate::configuration;
+use sqlx::sqlite::SqlitePool;
 use std::fs::File;
 use std::path::Path;
-use sqlx::sqlite::SqlitePool;
 
 pub async fn initialize_db(
     config: configuration::Configuration,
