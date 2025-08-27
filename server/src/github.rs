@@ -10,13 +10,17 @@ struct TagResponse {
     name: String,
 }
 
-pub async fn fetch_latest_release_tag(
+fn github_api_base() -> String {
+    std::env::var("GITHUB_API_BASE").unwrap_or_else(|_| "https://api.github.com".to_string())
+}
+
+pub(crate) async fn fetch_latest_release_tag_with_base(
     client: &reqwest::Client,
     owner: &str,
     repo: &str,
     token: Option<&str>,
+    base: &str,
 ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
-    let base = "https://api.github.com";
     let release_url = format!("{}/repos/{}/{}/releases/latest", base, owner, repo);
 
     let mut req = client
@@ -66,4 +70,124 @@ pub async fn fetch_latest_release_tag(
     Err("GitHub API returned non-success status".into())
 }
 
+pub async fn fetch_latest_release_tag(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+    token: Option<&str>,
+) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let base = github_api_base();
+    fetch_latest_release_tag_with_base(client, owner, repo, token, &base).await
+}
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::{Server, Matcher};
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::new()
+    }
+
+    #[tokio::test]
+    async fn latest_release_success() {
+        let mut server = Server::new_async().await;
+        let _m = server
+            .mock("GET", "/repos/owner/repo/releases/latest")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"tag_name":"v1.2.3"}).to_string())
+            .create_async()
+            .await;
+
+        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+            .await
+            .expect("ok");
+
+        assert_eq!(tag, Some("v1.2.3".to_string()));
+    }
+
+    #[tokio::test]
+    async fn latest_release_empty_tag_returns_none() {
+        let mut server = Server::new_async().await;
+        let _m = server
+            .mock("GET", "/repos/owner/repo/releases/latest")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"tag_name":""}).to_string())
+            .create_async()
+            .await;
+
+        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+            .await
+            .expect("ok");
+
+        assert_eq!(tag, None);
+    }
+
+    #[tokio::test]
+    async fn fallback_to_tags_on_404_success() {
+        let mut server = Server::new_async().await;
+        let _m1 = server
+            .mock("GET", "/repos/owner/repo/releases/latest")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let _m2 = server
+            .mock("GET", Matcher::Exact("/repos/owner/repo/tags".to_string()))
+            .match_query(Matcher::UrlEncoded("per_page".into(), "1".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!([{ "name": "v0.9.0" }]).to_string())
+            .create_async()
+            .await;
+
+        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+            .await
+            .expect("ok");
+
+        assert_eq!(tag, Some("v0.9.0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn fallback_to_tags_empty_returns_none() {
+        let mut server = Server::new_async().await;
+        let _m1 = server
+            .mock("GET", "/repos/owner/repo/releases/latest")
+            .with_status(404)
+            .create_async()
+            .await;
+
+        let _m2 = server
+            .mock("GET", Matcher::Exact("/repos/owner/repo/tags".to_string()))
+            .match_query(Matcher::UrlEncoded("per_page".into(), "1".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!([]).to_string())
+            .create_async()
+            .await;
+
+        let tag = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url())
+            .await
+            .expect("ok");
+
+        assert_eq!(tag, None);
+    }
+
+    #[tokio::test]
+    async fn non_success_errors() {
+        let mut server = Server::new_async().await;
+        let _m = server
+            .mock("GET", "/repos/owner/repo/releases/latest")
+            .with_status(500)
+            .with_body("err")
+            .create_async()
+            .await;
+
+        let res = fetch_latest_release_tag_with_base(&client(), "owner", "repo", None, &server.url()).await;
+        assert!(res.is_err());
+    }
+}
