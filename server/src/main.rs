@@ -14,7 +14,11 @@ mod utils;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting github release bot");
 
-    if cfg!(debug_assertions) {
+    if std::env::var("ENVIRONMENT_FILE")
+        .unwrap_or("true".to_string())
+        .parse::<bool>()
+        .unwrap()
+    {
         println!("Debug mode - loading .env file.");
         dotenvy::dotenv().expect("Failed to load .env file.");
     }
