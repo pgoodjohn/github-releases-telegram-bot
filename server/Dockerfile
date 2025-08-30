@@ -1,3 +1,15 @@
+FROM rust:1-bookworm AS chef
+
+WORKDIR /app
+
+# Install cargo-chef to compute dependency graph
+RUN cargo install cargo-chef --locked
+
+# Prepare the recipe for caching dependency builds
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+
 FROM rust:1-bookworm AS builder
 
 # System dependencies for building native deps (openssl, sqlite)
@@ -8,18 +20,15 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Leverage Docker layer caching: first copy manifests and do a dummy build
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src \
-    && echo "fn main() {}" > src/main.rs \
-    && cargo build --release || true
+# Install cargo-chef in the builder and cook deps using the recipe
+RUN cargo install cargo-chef --locked
+COPY --from=chef /app/recipe.json recipe.json
+RUN cargo chef cook --release --locked --recipe-path recipe.json
 
-# Now copy real sources and migrations (required at compile-time by sqlx::migrate!)
-COPY src ./src
-COPY migrations ./migrations
-
-# Build the actual binary
-RUN cargo build --release
+# Now copy the full source and build the actual binary.
+# Note: migrations are required at compile-time by sqlx::migrate!
+COPY . .
+RUN cargo build --release --locked
 
 
 FROM debian:bookworm-slim AS runtime
