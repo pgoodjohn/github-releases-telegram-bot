@@ -23,12 +23,12 @@ WORKDIR /app
 # Install cargo-chef in the builder and cook deps using the recipe
 RUN cargo install cargo-chef --locked
 COPY --from=chef /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --locked --recipe-path recipe.json
 
 # Now copy the full source and build the actual binary.
 # Note: migrations are required at compile-time by sqlx::migrate!
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --locked
 
 
 FROM debian:bookworm-slim AS runtime

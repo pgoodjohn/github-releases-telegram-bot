@@ -1,4 +1,10 @@
 target
+.git
+.gitignore
+.DS_Store
+db.sqlite
+data/
+target
 **/target
 **/.git
 **/.gitignore
