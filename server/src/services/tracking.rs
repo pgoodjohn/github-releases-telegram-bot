@@ -189,6 +189,7 @@ where
         }
     }
 
+    #[allow(clippy::collapsible_if)]
     pub async fn cache_latest_release_for_new_track(
         &self,
         track_result: &HandleTrackResult,
@@ -220,6 +221,7 @@ where
         Ok(())
     }
 
+    #[allow(clippy::collapsible_if)]
     pub async fn update_chat_for_track(
         &self,
         track_result: &HandleTrackResult,
