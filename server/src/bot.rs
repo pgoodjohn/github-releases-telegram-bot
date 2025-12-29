@@ -95,6 +95,49 @@ pub(crate) async fn handle_track(
     }
 }
 
+pub(crate) async fn handle_untrack(
+    db: &SqlitePool,
+    chat_id: i64,
+    url: &str,
+) -> Result<String, String> {
+    let repo_url = match crate::tracked_repositories::RepositoryUrl::new(url.to_string()) {
+        Ok(u) => u,
+        Err(err_msg) => return Err(err_msg),
+    };
+
+    let repository = SqliteTrackedRepositoriesRepository::new(db.clone());
+
+    match repository
+        .find_by_repository_url(&repo_url.url())
+        .await
+        .map_err(|e| format!("Failed to query repository: {e}"))?
+    {
+        Some(existing) => {
+            if existing.chat_id != chat_id {
+                return Err(format!("This chat is not tracking {url}."));
+            }
+
+            // Delete cached releases first
+            let cache_repo = SqliteCachedRepositoryReleasesRepository::new(db.clone());
+            cache_repo
+                .delete_by_tracked_release_id(&existing.id)
+                .await
+                .map_err(|e| format!("Failed to delete cached releases: {e}"))?;
+
+            // Delete the tracked repository
+            TrackedRepositoriesRepository::delete(&repository, &existing.id.to_string())
+                .await
+                .map_err(|e| format!("Failed to untrack repository: {e}"))?;
+
+            Ok(format!(
+                "Stopped tracking {} ({url}).",
+                existing.repository_name
+            ))
+        }
+        None => Err(format!("This repository ({url}) is not being tracked.")),
+    }
+}
+
 #[derive(BotCommands, Clone)]
 #[command(
     rename_rule = "snake_case",
@@ -103,6 +146,8 @@ pub(crate) async fn handle_track(
 pub enum Command {
     #[command(description = "track a repository: <name> <url>", parse_with = "split")]
     Track { name: String, url: String },
+    #[command(description = "stop tracking a repository: <url>")]
+    Untrack { url: String },
     #[command(description = "list all tracked repositories")]
     List,
     #[command(description = "display this help message")]
@@ -202,6 +247,26 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
                             let _ = cache_repo.save(&cached).await;
                         }
                     }
+                }
+                Err(err_msg) => {
+                    bot.send_message(msg.chat.id, err_msg).await?;
+                }
+            }
+        }
+        Command::Untrack { url } => {
+            log::info!("Untracking repository: {url}");
+
+            match crate::tracked_repositories::RepositoryUrl::new(url.clone()) {
+                Ok(_) => (),
+                Err(err_msg) => {
+                    bot.send_message(msg.chat.id, err_msg).await?;
+                    return Ok(());
+                }
+            };
+
+            match handle_untrack(&state.db, msg.chat.id.0, &url).await {
+                Ok(message) => {
+                    bot.send_message(msg.chat.id, message).await?;
                 }
                 Err(err_msg) => {
                     bot.send_message(msg.chat.id, err_msg).await?;
@@ -371,5 +436,76 @@ mod tests {
             }
             _ => panic!("expected Updated"),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_removes_tracked_repository() {
+        let db = setup_db().await;
+
+        // First, track a repository
+        let track_res = handle_track(
+            &db,
+            100,
+            "repo-untrack",
+            "https://github.com/owner/repo-untrack",
+        )
+        .await
+        .expect("track should succeed");
+        let tracked_id = match track_res {
+            HandleTrackResult::Created { id, .. } => id,
+            _ => panic!("expected Created"),
+        };
+
+        // Now untrack it
+        let untrack_msg = handle_untrack(&db, 100, "https://github.com/owner/repo-untrack")
+            .await
+            .expect("untrack should succeed");
+
+        assert!(untrack_msg.contains("Stopped tracking"));
+        assert!(untrack_msg.contains("repo-untrack"));
+
+        // Verify it's removed
+        let repository = SqliteTrackedRepositoriesRepository::new(db.clone());
+        let found = repository
+            .find_by_repository_url("https://github.com/owner/repo-untrack")
+            .await
+            .expect("query should succeed");
+        assert!(found.is_none());
+
+        // Verify cached releases are removed
+        let cache_repo = SqliteCachedRepositoryReleasesRepository::new(db.clone());
+        let cached = cache_repo
+            .find_by_tracked_release_id(&tracked_id)
+            .await
+            .expect("query should succeed");
+        assert!(cached.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_fails_if_not_tracked() {
+        let db = setup_db().await;
+
+        let err = handle_untrack(&db, 100, "https://github.com/owner/not-tracked")
+            .await
+            .expect_err("should fail");
+
+        assert!(err.contains("not being tracked"));
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_fails_if_tracked_in_different_chat() {
+        let db = setup_db().await;
+
+        // Track in chat 1
+        let _ = handle_track(&db, 1, "repo-chat", "https://github.com/owner/repo-chat")
+            .await
+            .expect("track should succeed");
+
+        // Try to untrack from chat 2
+        let err = handle_untrack(&db, 2, "https://github.com/owner/repo-chat")
+            .await
+            .expect_err("should fail");
+
+        assert!(err.contains("not tracking"));
     }
 }
