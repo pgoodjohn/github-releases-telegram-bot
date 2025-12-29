@@ -1,98 +1,21 @@
 use std::sync::Arc;
 
-use sqlx::sqlite::SqlitePool;
 use teloxide::dispatching::{Dispatcher, UpdateFilterExt};
 use teloxide::dptree;
 use teloxide::prelude::*;
-use teloxide::types::ParseMode;
 use teloxide::utils::command::BotCommands;
 
-use crate::configuration;
-use crate::github::fetch_latest_release_tag;
-use crate::tracked_repositories::repository::{
-    SqliteTrackedRepositoriesRepository, TrackedRepositoriesRepository,
-};
-use crate::tracked_repositories::tracked_repositories_releases::CachedRepositoryRelease;
-use crate::tracked_repositories::tracked_repositories_releases::repository::{
-    CachedRepositoryReleasesRepository, SqliteCachedRepositoryReleasesRepository,
-};
-use crate::utils::html_escape;
-use urlencoding::encode;
+use crate::services::tracking::{HandleTrackResult, TrackingService};
+use crate::tracked_repositories::repository::SqliteTrackedRepositoriesRepository;
+use crate::tracked_repositories::tracked_repositories_releases::repository::SqliteCachedRepositoryReleasesRepository;
 
 pub struct BotState {
-    pub db: SqlitePool,
-    pub config: configuration::Configuration,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HandleTrackResult {
-    AlreadyTracking { message: String },
-    Updated { id: uuid::Uuid, message: String },
-    Created { id: uuid::Uuid, message: String },
-}
-
-pub(crate) async fn handle_track(
-    db: &SqlitePool,
-    chat_id: i64,
-    name: &str,
-    url: &str,
-) -> Result<HandleTrackResult, String> {
-    if name.is_empty() {
-        return Err("Please provide a name for the repository.".to_string());
-    }
-
-    let repo_url = match crate::tracked_repositories::RepositoryUrl::new(url.to_string()) {
-        Ok(u) => u,
-        Err(err_msg) => return Err(err_msg),
-    };
-
-    let repository = SqliteTrackedRepositoriesRepository::new(db.clone());
-
-    match repository
-        .find_by_repository_url(&repo_url.url())
-        .await
-        .map_err(|e| format!("Failed to query repository: {e}"))?
-    {
-        Some(mut existing) => {
-            if existing.chat_id == chat_id {
-                return Ok(HandleTrackResult::AlreadyTracking {
-                    message: format!("This chat is already tracking {name} ({url})."),
-                });
-            }
-
-            existing.repository_name = name.to_string();
-            existing.updated_at = chrono::Utc::now();
-            // Persist name/update but do not change chat_id here to mirror runtime flow
-            TrackedRepositoriesRepository::save(&repository, &mut existing)
-                .await
-                .map_err(|e| format!("Failed to update tracked repository: {e}"))?;
-
-            Ok(HandleTrackResult::Updated {
-                id: existing.id,
-                message: format!("Updated tracking for {name} ({url})."),
-            })
-        }
-        None => {
-            let now = chrono::Utc::now();
-            let mut tracked = crate::tracked_repositories::TrackedRelease {
-                id: uuid::Uuid::now_v7(),
-                repository_name: name.to_string(),
-                repository_url: repo_url,
-                chat_id,
-                created_at: now,
-                updated_at: now,
-            };
-
-            TrackedRepositoriesRepository::save(&repository, &mut tracked)
-                .await
-                .map_err(|e| format!("Failed to track repository: {e}"))?;
-
-            Ok(HandleTrackResult::Created {
-                id: tracked.id,
-                message: format!("Now tracking {name} ({url})."),
-            })
-        }
-    }
+    pub tracking_service: Arc<
+        TrackingService<
+            SqliteTrackedRepositoriesRepository,
+            SqliteCachedRepositoryReleasesRepository,
+        >,
+    >,
 }
 
 #[derive(BotCommands, Clone)]
@@ -103,6 +26,8 @@ pub(crate) async fn handle_track(
 pub enum Command {
     #[command(description = "track a repository: <name> <url>", parse_with = "split")]
     Track { name: String, url: String },
+    #[command(description = "stop tracking a repository: <url>")]
+    Untrack { url: String },
     #[command(description = "list all tracked repositories")]
     List,
     #[command(description = "display this help message")]
@@ -138,134 +63,80 @@ async fn answer(bot: Bot, msg: Message, cmd: Command, state: Arc<BotState>) -> R
             }
 
             match crate::tracked_repositories::RepositoryUrl::new(url.clone()) {
-                Ok(u) => u,
+                Ok(_) => (),
                 Err(err_msg) => {
                     bot.send_message(msg.chat.id, err_msg).await?;
                     return Ok(());
                 }
             };
 
-            match handle_track(&state.db, msg.chat.id.0, &name, &url).await {
-                Ok(HandleTrackResult::AlreadyTracking { message }) => {
+            match state
+                .tracking_service
+                .handle_track(msg.chat.id.0, &name, &url)
+                .await
+            {
+                Ok(track_result) => {
+                    let message = match &track_result {
+                        HandleTrackResult::AlreadyTracking { message } => message.clone(),
+                        HandleTrackResult::Updated { message, .. } => message.clone(),
+                        HandleTrackResult::Created { message, .. } => message.clone(),
+                    };
                     bot.send_message(msg.chat.id, message).await?;
-                }
-                Ok(HandleTrackResult::Updated { id, message }) => {
-                    bot.send_message(msg.chat.id, message).await?;
-                    if let Some((owner, repo)) =
-                        crate::tracked_repositories::RepositoryUrl::new(url.clone())
-                            .ok()
-                            .and_then(|u| u.owner_and_repo())
-                    {
-                        let client = reqwest::Client::new();
-                        let token_opt = state.config.github_token.clone();
-                        if let Ok(Some(tag)) =
-                            fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref())
-                                .await
-                        {
-                            let cache_repo =
-                                SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
-                            let cached = CachedRepositoryRelease {
-                                tracked_repository_id: id,
-                                tag_name: tag,
-                                first_seen_at: chrono::Utc::now(),
-                            };
-                            let _ = cache_repo.save(&cached).await;
-                        }
-                    }
-                    // After messaging and caching, move the tracking to this chat
-                    let repository = SqliteTrackedRepositoriesRepository::new(state.db.clone());
-                    if let Ok(Some(mut existing)) = repository.find_by_repository_url(&url).await {
-                        existing.chat_id = msg.chat.id.0;
-                        let _ = repository.save(&mut existing).await;
-                    }
-                }
-                Ok(HandleTrackResult::Created { id, message }) => {
-                    bot.send_message(msg.chat.id, message).await?;
-                    if let Some((owner, repo)) =
-                        crate::tracked_repositories::RepositoryUrl::new(url.clone())
-                            .ok()
-                            .and_then(|u| u.owner_and_repo())
-                    {
-                        let client = reqwest::Client::new();
-                        let token_opt = state.config.github_token.clone();
-                        if let Ok(Some(tag)) =
-                            fetch_latest_release_tag(&client, &owner, &repo, token_opt.as_deref())
-                                .await
-                        {
-                            let cache_repo =
-                                SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
-                            let cached = CachedRepositoryRelease {
-                                tracked_repository_id: id,
-                                tag_name: tag,
-                                first_seen_at: chrono::Utc::now(),
-                            };
-                            let _ = cache_repo.save(&cached).await;
-                        }
-                    }
+
+                    // Cache latest release and update chat
+                    let _ = state
+                        .tracking_service
+                        .cache_latest_release_for_new_track(&track_result, &url)
+                        .await;
+                    let _ = state
+                        .tracking_service
+                        .update_chat_for_track(&track_result, msg.chat.id.0, &url)
+                        .await;
                 }
                 Err(err_msg) => {
                     bot.send_message(msg.chat.id, err_msg).await?;
                 }
             }
         }
-        Command::List => {
-            let repository = SqliteTrackedRepositoriesRepository::new(state.db.clone());
-            match repository.find_all_by_chat_id(msg.chat.id.0).await {
-                Ok(repos) => {
-                    if repos.is_empty() {
-                        bot.send_message(msg.chat.id, "No repositories tracked yet.")
-                            .await?;
-                    } else {
-                        let mut lines: Vec<String> = Vec::with_capacity(repos.len());
-                        let cache_repo =
-                            SqliteCachedRepositoryReleasesRepository::new(state.db.clone());
+        Command::Untrack { url } => {
+            log::info!("Untracking repository: {url}");
 
-                        for r in repos {
-                            let url_string = r.repository_url.to_string();
-                            let url_escaped = html_escape(&url_string);
-                            let name_escaped = html_escape(&r.repository_name);
-                            let latest_str = match cache_repo
-                                .find_by_tracked_release_id(&r.id)
-                                .await
-                            {
-                                Ok(Some(cached)) => {
-                                    if let Some((owner, repo)) = r.repository_url.owner_and_repo() {
-                                        let release_url = format!(
-                                            "https://github.com/{}/{}/releases/tag/{}",
-                                            owner,
-                                            repo,
-                                            encode(&cached.tag_name)
-                                        );
-                                        let release_url_escaped = html_escape(&release_url);
-                                        let tag_escaped = html_escape(&cached.tag_name);
-                                        format!(
-                                            "latest: <a href=\"{}\">{}</a>",
-                                            release_url_escaped, tag_escaped
-                                        )
-                                    } else {
-                                        let tag_escaped = html_escape(&cached.tag_name);
-                                        format!("latest: {}", tag_escaped)
-                                    }
-                                }
-                                _ => "latest: unknown".to_string(),
-                            };
-                            lines.push(format!(
-                                "- <a href=\"{}\">{}</a> - {}",
-                                url_escaped, name_escaped, latest_str
-                            ));
-                        }
-                        let text = format!("Tracked repositories:\n{}", lines.join("\n"));
-                        bot.send_message(msg.chat.id, text)
-                            .parse_mode(ParseMode::Html)
-                            .await?;
-                    }
+            match crate::tracked_repositories::RepositoryUrl::new(url.clone()) {
+                Ok(_) => (),
+                Err(err_msg) => {
+                    bot.send_message(msg.chat.id, err_msg).await?;
+                    return Ok(());
                 }
-                Err(e) => {
-                    bot.send_message(msg.chat.id, format!("Failed to list repositories: {e}"))
-                        .await?;
+            };
+
+            match state
+                .tracking_service
+                .handle_untrack(msg.chat.id.0, &url)
+                .await
+            {
+                Ok(message) => {
+                    bot.send_message(msg.chat.id, message).await?;
+                }
+                Err(err_msg) => {
+                    bot.send_message(msg.chat.id, err_msg).await?;
                 }
             }
         }
+        Command::List => match state.tracking_service.handle_list(msg.chat.id.0).await {
+            Ok(text) => {
+                if text == "No repositories tracked yet." {
+                    bot.send_message(msg.chat.id, text).await?;
+                } else {
+                    bot.send_message(msg.chat.id, text)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                }
+            }
+            Err(e) => {
+                bot.send_message(msg.chat.id, format!("Failed to list repositories: {e}"))
+                    .await?;
+            }
+        },
         Command::Help => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
@@ -298,8 +169,14 @@ async fn fallback(bot: Bot, msg: Message) -> ResponseResult<()> {
 mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+    use std::sync::Arc;
 
-    async fn setup_db() -> SqlitePool {
+    async fn setup_tracking_service() -> Arc<
+        TrackingService<
+            SqliteTrackedRepositoriesRepository,
+            SqliteCachedRepositoryReleasesRepository,
+        >,
+    > {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -311,13 +188,44 @@ mod tests {
             .await
             .expect("failed to run migrations");
 
-        pool
+        let tracked_repo = Arc::new(SqliteTrackedRepositoriesRepository::new(pool.clone()));
+        let cached_repo = Arc::new(SqliteCachedRepositoryReleasesRepository::new(pool));
+
+        // Mock adapters for tests
+        let github_service = Arc::new(MockGitHubService::new());
+
+        Arc::new(TrackingService::new(
+            tracked_repo,
+            cached_repo,
+            github_service,
+        ))
+    }
+
+    // Mock implementations for testing
+    struct MockGitHubService;
+
+    impl MockGitHubService {
+        fn new() -> Self {
+            Self
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::GitHubService for MockGitHubService {
+        async fn fetch_latest_release_tag(
+            &self,
+            _owner: &str,
+            _repo: &str,
+        ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(Some("v1.0.0".to_string()))
+        }
     }
 
     #[tokio::test]
     async fn handle_track_creates_new_when_not_exists() {
-        let db = setup_db().await;
-        let res = handle_track(&db, 100, "repo-one", "https://github.com/owner/repo-one")
+        let tracking_service = setup_tracking_service().await;
+        let res = tracking_service
+            .handle_track(100, "repo-one", "https://github.com/owner/repo-one")
             .await
             .expect("should succeed");
 
@@ -331,15 +239,17 @@ mod tests {
 
     #[tokio::test]
     async fn handle_track_reports_already_tracking_in_same_chat() {
-        let db = setup_db().await;
+        let tracking_service = setup_tracking_service().await;
 
         // First, create
-        let _ = handle_track(&db, 42, "repo-two", "https://github.com/owner/repo-two")
+        let _ = tracking_service
+            .handle_track(42, "repo-two", "https://github.com/owner/repo-two")
             .await
             .expect("create should succeed");
 
         // Second, same chat and same url -> already tracking
-        let res = handle_track(&db, 42, "repo-two", "https://github.com/owner/repo-two")
+        let res = tracking_service
+            .handle_track(42, "repo-two", "https://github.com/owner/repo-two")
             .await
             .expect("should succeed");
 
@@ -353,15 +263,17 @@ mod tests {
 
     #[tokio::test]
     async fn handle_track_updates_when_tracked_in_other_chat() {
-        let db = setup_db().await;
+        let tracking_service = setup_tracking_service().await;
 
         // Create tracked in chat 1
-        let _ = handle_track(&db, 1, "repo-three", "https://github.com/owner/repo-three")
+        let _ = tracking_service
+            .handle_track(1, "repo-three", "https://github.com/owner/repo-three")
             .await
             .expect("create should succeed");
 
         // Track same url in different chat -> should Update (then outer flow can move chat)
-        let res = handle_track(&db, 2, "repo-three", "https://github.com/owner/repo-three")
+        let res = tracking_service
+            .handle_track(2, "repo-three", "https://github.com/owner/repo-three")
             .await
             .expect("should succeed");
 
@@ -371,5 +283,60 @@ mod tests {
             }
             _ => panic!("expected Updated"),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_removes_tracked_repository() {
+        let tracking_service = setup_tracking_service().await;
+
+        // First, track a repository
+        let track_res = tracking_service
+            .handle_track(100, "repo-untrack", "https://github.com/owner/repo-untrack")
+            .await
+            .expect("track should succeed");
+        match track_res {
+            HandleTrackResult::Created { .. } => (),
+            _ => panic!("expected Created"),
+        };
+
+        // Now untrack it
+        let untrack_msg = tracking_service
+            .handle_untrack(100, "https://github.com/owner/repo-untrack")
+            .await
+            .expect("untrack should succeed");
+
+        assert!(untrack_msg.contains("Stopped tracking"));
+        assert!(untrack_msg.contains("repo-untrack"));
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_fails_if_not_tracked() {
+        let tracking_service = setup_tracking_service().await;
+
+        let err = tracking_service
+            .handle_untrack(100, "https://github.com/owner/not-tracked")
+            .await
+            .expect_err("should fail");
+
+        assert!(err.contains("not being tracked"));
+    }
+
+    #[tokio::test]
+    async fn handle_untrack_fails_if_tracked_in_different_chat() {
+        let tracking_service = setup_tracking_service().await;
+
+        // Track in chat 1
+        let _ = tracking_service
+            .handle_track(1, "repo-chat", "https://github.com/owner/repo-chat")
+            .await
+            .expect("track should succeed");
+
+        // Try to untrack from chat 2
+        let err = tracking_service
+            .handle_untrack(2, "https://github.com/owner/repo-chat")
+            .await
+            .expect_err("should fail");
+
+        assert!(err.contains("not tracking"));
     }
 }

@@ -13,6 +13,10 @@ pub trait CachedRepositoryReleasesRepository: Send + Sync {
         &self,
         id: &uuid::Uuid,
     ) -> Result<Option<CachedRepositoryRelease>, Box<dyn Error + Send + Sync>>;
+    async fn delete_by_tracked_release_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
 pub struct SqliteCachedRepositoryReleasesRepository {
@@ -68,6 +72,17 @@ impl CachedRepositoryReleasesRepository for SqliteCachedRepositoryReleasesReposi
         .await?;
 
         Ok(rec)
+    }
+
+    async fn delete_by_tracked_release_id(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query("DELETE FROM tracked_repository_releases WHERE tracked_repository_id = ?1")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
